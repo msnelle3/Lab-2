@@ -1,0 +1,279 @@
+---
+title: "Lab-2"
+author: "Max Snellenberger"
+date: "2025-02-26"
+output: html_document
+---
+
+## Setup
+
+```{r packages}
+library(tidyverse)
+library(sf)
+library(tmap)
+```
+
+## Joins
+
+```{r joins}
+#table of names
+t.names <- tibble(key = c(1,2,3),
+                  name = c("Huey", "Dewey", "Louis"))
+
+#table of scores
+t.scores <- tibble(name = c("Louis", "Huey", "Dewey"),
+                   score = c(99, 45, 33))
+
+#join by the variable "name"
+t.joined <- left_join(t.names, t.scores, by = "name")
+t.joined
+
+t.wonkyNames <- tibble(nombre = c("Dewey", "Louis", "Huey"),
+                       x = rep(999),
+                       favoriteFood = c("banana", "apple", "carrot"))
+
+t.joined2 <- left_join(t.joined, t.wonkyNames, by = c("name" = "nombre"))
+t.joined2
+
+```
+
+## BMPs
+
+```{r bmps}
+#load data
+bmps <- read.csv("../data/CBW/BMPreport2016_landbmps.csv")
+glimpse(bmps)
+
+#add a new column mutating the GeographyName category to just the FIPS
+  #is there also a way to do this by removing anything after an open parenthesis?
+bmps <- bmps %>% mutate(., FIPS.trimmed = stringr::str_sub(GeographyName, 1, 5))
+
+bmps %>% group_by(BMPType) %>% 
+  summarise(totalCost = sum(Cost, na.rm = T)) %>%
+  ggplot(., aes(x = BMPType, y = totalCost)) +
+  geom_bar(stat = "identity") +
+  theme_minimal()
+
+#find out why it looks bad
+summary(bmps$Cost)
+#there are a lot of NAs so edit the plot code to remove
+
+#group by two factors at once
+twofactors <- bmps %>% group_by(StateAbbreviation, Sector) %>%
+  summarise(totalCost = sum(Cost))
+twofactors
+
+#plot as boxplot by state
+bmps %>% ggplot(., aes(x = StateAbbreviation, y = AmountCredited)) +
+  geom_boxplot(aes(fill = StateAbbreviation))
+
+#subset the data to unskew it
+bmps %>% 
+  dplyr::filter(., AmountCredited > 1 & AmountCredited < 100) %>%
+  ggplot(., aes(x = StateAbbreviation, y = AmountCredited)) +
+  geom_boxplot(aes(fill = StateAbbreviation))
+
+#plot multiple dimensions
+bmps %>%
+  dplyr::filter(AmountCredited > 1 & AmountCredited < 100) %>%
+  ggplot(., aes(x = StateAbbreviation, y = AmountCredited)) +
+  geom_boxplot(aes(fill = StateAbbreviation)) +
+  facet_grid(Sector~.)
+
+#instead of filtering, you can log transform, but this does remove all 0 values
+bmps %>%
+  ggplot(., aes(x = StateAbbreviation, y = AmountCredited)) +
+  geom_boxplot(aes(fill = StateAbbreviation)) +
+  scale_y_log10()+
+  labs(y = "log10(AmountCredited)")
+
+```
+## %in% Command
+```{r %in% command}
+#example vector
+x <- c(1,2,3,4,5)
+
+#check if 7 is in the vector
+7 %in% x     #spoiler alert, it's not)
+2 %in% x     
+
+#can also use a vector
+c(4, 99, 1) %in% x
+```
+## Using tmap to remove non-valid data
+
+```{r tmap}
+counties <- sf::read_sf("../data/CBW/County_Boundaries.shp")
+counties %>% sf::st_is_valid()
+counties %>% sf::st_make_valid()
+
+#quick map, felt cute, might delete later
+tm_shape(counties) + tm_polygons(fill = "ALAND10")
+
+```
+
+```{r load data}
+
+# spatial
+counties <- sf::read_sf("../data/CBW/County_Boundaries.shp") %>% 
+  sf::st_make_valid()
+dams <- sf::read_sf("../data/CBW/Dam_or_Other_Blockage_Removed_2012_2017.shp") %>% 
+  sf::st_make_valid()
+streams <- sf::read_sf("../data/CBW/Streams_Opened_by_Dam_Removal_2012_2017.shp") %>% 
+  sf::st_make_valid()
+
+# aspatial
+bmps <- read_csv("../data/CBW/BMPreport2016_landbmps.csv")
+```
+## Task 1
+
+```{r Task 1}
+glimpse(bmps)
+bmps %>% summarise(BMPType)
+
+#1.1
+
+#group by state and calculate each of the summary statistics for the cost data
+StateSummary <- bmps %>%
+  group_by(StateAbbreviation) %>%
+  summarise(
+    min = min(Cost, na.rm = T),
+    max = max(Cost, na.rm = T),
+    mean = mean(Cost, na.rm = T),
+    median = median(Cost, na.rm = T),
+    sd = sd(Cost, na.rm = T)
+  )
+StateSummary
+
+#1.2 
+#filter to units that are called acres, then plot with both axes scaled to log10
+bmps %>% 
+  dplyr::filter(., Unit == "Acres") %>%
+  ggplot(., aes(x = Cost, y = AmountCredited)) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10()+
+  labs(x = "log10(Cost)", y = "log10(AmountCredited)")
+
+#1.3 
+#use stringr to detect the rows that include "Cover Crop" in the BMP column
+Crop <- stringr::str_detect(bmps$BMP, "Cover Crop")
+
+#plot using dplyr to filter to the crop rows, scale y-axis (& make it colorful)
+bmps %>% 
+  dplyr::filter(., Crop == T) %>%
+  ggplot(., aes(x = StateAbbreviation, y = TotalAmountCredited)) +
+  geom_boxplot(aes(fill = StateAbbreviation)) +
+  scale_y_log10()+
+  labs(y = "log10(TotalAmountCredited)")
+
+#1.4 use filter to only include dams with year unequal to 0 and plot
+dams %>% 
+  filter(., YEAR != 0) %>%
+  ggplot(., aes(x = YEAR, y = STATE)) +
+  geom_point()
+
+
+#1.5 
+#for each state- number of dams compared to length of streams
+#join first ig
+#sum of "LengthKM" by state on x axis
+#count of "DAM_NAME" by state
+
+#calculate the total length of streams in each state(this is where i fucked up)
+length_per_state <- streams %>%
+  group_by(STATE) %>%
+  summarise(TotalLength = sum(LengthKM, na.rm = TRUE))
+
+#count the number of dams per state
+dams_per_state <- dams %>%
+  group_by(STATE) %>%
+  summarise(numberDams = n())
+
+#merge the two data frames
+DamStreams <- st_join(length_per_state, dams_per_state)
+  
+glimpse(DamStreams)
+
+#plot the number of dams by the length of streams (i really thought there were more than 3)
+ggplot(DamStreams) +
+  aes(x = TotalLength, y = numberDams) +
+  geom_point() +
+  labs(title = "Number of Dams vs. Stream Length by State",
+       x = "Total Stream Length (km)",
+       y = "Number of Dams")
+
+  
+
+```
+## Task 2
+
+```{r Task 2}
+#2.1
+#select the length, name, and objectid columns, arrange decreasing by length and select the first 5 
+longest_streams <- streams %>%
+  select(OBJECTID_1, GNIS_Name, LengthKM) %>%
+  arrange(desc(LengthKM)) %>%
+  head(5)
+
+longest_streams
+
+#2.2
+#group by fips code then sum total stream length, arrange descending and list the first 3
+LongestStreams <- streams %>% 
+  group_by(FCode) %>%
+  summarise(TotalLength = sum(LengthKM, na.rm = T)) %>%
+  arrange(desc(TotalLength)) %>%
+  head(3)
+LongestStreams
+
+#for the record, I'm absolutely devastated because I didn't see the fips code column and went through most of the work to join streams to counties before I realized
+
+#2.3 map shaded by total cost of BMPs
+class(bmps)
+
+#add a column for the combined state and county fips
+counties <- counties %>% mutate(., FullFIPS = paste0(STATEFP10, COUNTYFP10))
+glimpse(counties)
+
+#join bmps to counties
+
+CountyBMP <- left_join(counties, bmps, by = c("FullFIPS" = "FIPS.trimmed" ))
+
+#remove any values that are NA
+CountyBMP <- CountyBMP %>%
+  filter(!is.na(AmountCredited))
+
+# Remove rows with missing geometries
+CountyBMP <- CountyBMP[!is.na(st_geometry(CountyBMP)), ]
+
+#make the map
+tm_shape(CountyBMP) + 
+  tm_polygons(fill = "AmountCredited")
+
+
+#2.4
+class(dams)
+class(streams)
+
+dams <- st_as_sf(dams)
+streams <- st_as_sf(dams)
+
+# find the nearest stream for each dam
+nearest_stream_ids <- st_nearest_feature(dams, streams)
+nearest_streams <- streams[nearest_stream_ids, ]
+
+# combine the dams with the nearest streams
+dams_with_nearest_stream <- cbind(dams, nearest_streams) %>%
+  select(UNIQUE_ID, DAM_NAME, WATERBODY)
+glimpse(dams_with_nearest_stream)
+
+#2.5
+#group by state and then use summarize to count the number per state
+dams_per_state <- dams %>%
+  group_by(STATE) %>%
+  summarise(numberDams = n())
+dams_per_state
+
+```
+
